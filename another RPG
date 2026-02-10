@@ -1,0 +1,344 @@
+import pygame
+import sys
+
+pygame.init()
+
+# ======================================================
+# CONFIG
+# ======================================================
+
+WIDTH, HEIGHT = 1000, 650
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("Actually-Real Dialogue RPG")
+
+clock = pygame.time.Clock()
+
+FONT = pygame.font.SysFont("consolas", 24)
+BIG_FONT = pygame.font.SysFont("consolas", 36)
+
+WHITE = (235, 235, 235)
+BLACK = (18, 18, 18)
+BLUE = (60, 120, 255)
+RED = (200, 80, 80)
+GREEN = (80, 180, 100)
+GREY = (40, 40, 40)
+
+TYPE_SPEED = 25  # characters per second
+
+
+# ======================================================
+# GAME STATE (flags + quest logic)
+# ======================================================
+
+class GameState:
+    def __init__(self):
+        self.flags = {}
+
+    def set(self, key, value=True):
+        self.flags[key] = value
+
+    def get(self, key):
+        return self.flags.get(key, False)
+
+
+state = GameState()
+
+
+# ======================================================
+# DIALOGUE DATA
+# (this is where the story lives)
+# ======================================================
+
+DIALOGUES = {
+
+    "old_man": {
+
+        "start": {
+            "speaker": "Old Man",
+            "text": "You again. The woods don't usually spit people back out alive.",
+            "choices": [
+                {"text": "Who are you?", "next": "who"},
+                {"text": "I'm just exploring.", "next": "explore"},
+                {"text": "None of your business.", "next": "rude"}
+            ]
+        },
+
+        "who": {
+            "speaker": "Old Man",
+            "text": "Caretaker. Watcher. Professional pessimist.",
+            "next": "quest_offer"
+        },
+
+        "explore": {
+            "speaker": "Old Man",
+            "text": "Explorers usually become skeletons. You're doing surprisingly well.",
+            "next": "quest_offer"
+        },
+
+        "rude": {
+            "speaker": "Old Man",
+            "text": "Charming. You'll survive. Spite keeps people alive.",
+            "next": "quest_offer"
+        },
+
+        "quest_offer": {
+            "speaker": "Old Man",
+            "text": "Something stole my lantern. Without it, the forest gets... weird.",
+            "choices": [
+                {
+                    "text": "I'll help.",
+                    "action": lambda s: s.set("quest_lantern"),
+                    "next": "accept"
+                },
+                {
+                    "text": "Sounds like a you problem.",
+                    "next": "decline"
+                }
+            ]
+        },
+
+        "accept": {
+            "speaker": "Old Man",
+            "text": "Good. Head east. Try not to get eaten. Paperwork is annoying.",
+            "next": None
+        },
+
+        "decline": {
+            "speaker": "Old Man",
+            "text": "Fair. The darkness will probably find you anyway.",
+            "next": None
+        }
+    },
+
+    "kid": {
+
+        "start": {
+            "speaker": "Kid",
+            "text": "Hey! You look like you fight monsters. Wanna trade snacks?",
+            "choices": [
+                {"text": "Sure", "next": "trade"},
+                {"text": "No thanks", "next": "no"},
+                {"text": "Why are you alone out here?", "next": "why"}
+            ]
+        },
+
+        "trade": {
+            "speaker": "Kid",
+            "text": "Nice. Here. Mystery jerky. Probably legal.",
+            "action": lambda s: s.set("has_snack"),
+            "next": None
+        },
+
+        "no": {
+            "speaker": "Kid",
+            "text": "Your loss. It's only slightly glowing.",
+            "next": None
+        },
+
+        "why": {
+            "speaker": "Kid",
+            "text": "Because adults are boring and the forest has secrets.",
+            "next": None
+        }
+    }
+}
+
+
+# ======================================================
+# TEXT WRAP
+# ======================================================
+
+def wrap_text(text, font, width):
+    words = text.split()
+    lines = []
+    current = ""
+
+    for word in words:
+        test = current + word + " "
+        if font.size(test)[0] <= width:
+            current = test
+        else:
+            lines.append(current)
+            current = word + " "
+
+    lines.append(current)
+    return lines
+
+
+# ======================================================
+# DIALOGUE SYSTEM (FULL SCREEN)
+# ======================================================
+
+class DialogueSystem:
+
+    def __init__(self):
+        self.active = False
+        self.data = None
+        self.node = None
+
+        self.choice_index = 0
+        self.visible_chars = 0
+        self.current_text = ""
+
+    def start(self, data):
+        self.data = data
+        self.node = "start"
+        self.choice_index = 0
+        self.visible_chars = 0
+        self.active = True
+
+    def update(self, dt):
+        if not self.active:
+            return
+
+        text = self.data[self.node]["text"]
+        self.visible_chars += TYPE_SPEED * dt
+        self.current_text = text[:int(self.visible_chars)]
+
+    def handle_event(self, event):
+        if not self.active:
+            return
+
+        node_data = self.data[self.node]
+
+        if event.type == pygame.KEYDOWN:
+
+            if "choices" in node_data:
+
+                if event.key == pygame.K_UP:
+                    self.choice_index = max(0, self.choice_index - 1)
+
+                if event.key == pygame.K_DOWN:
+                    self.choice_index = min(
+                        len(node_data["choices"]) - 1,
+                        self.choice_index + 1
+                    )
+
+                if event.key == pygame.K_RETURN:
+                    choice = node_data["choices"][self.choice_index]
+
+                    if "action" in choice:
+                        choice["action"](state)
+
+                    self.node = choice["next"]
+                    self.choice_index = 0
+                    self.visible_chars = 0
+
+            else:
+                if event.key == pygame.K_RETURN:
+                    self.node = node_data.get("next")
+                    self.visible_chars = 0
+
+            if self.node is None:
+                self.active = False
+
+    def draw(self, surf):
+
+        if not self.active:
+            return
+
+        # dim background
+        overlay = pygame.Surface((WIDTH, HEIGHT))
+        overlay.set_alpha(220)
+        overlay.fill(BLACK)
+        surf.blit(overlay, (0, 0))
+
+        node_data = self.data[self.node]
+
+        speaker = node_data.get("speaker", "")
+
+        title = BIG_FONT.render(speaker, True, GREEN)
+        surf.blit(title, (60, 40))
+
+        lines = wrap_text(self.current_text, FONT, WIDTH - 120)
+
+        for i, line in enumerate(lines):
+            txt = FONT.render(line, True, WHITE)
+            surf.blit(txt, (60, 120 + i * 32))
+
+        if "choices" in node_data:
+            for i, choice in enumerate(node_data["choices"]):
+                color = BLUE if i == self.choice_index else WHITE
+                txt = FONT.render(choice["text"], True, color)
+                surf.blit(txt, (80, 350 + i * 36))
+
+
+dialogue = DialogueSystem()
+
+
+# ======================================================
+# PLAYER + NPC
+# ======================================================
+
+class Player:
+    def __init__(self):
+        self.rect = pygame.Rect(200, 200, 40, 40)
+        self.speed = 4
+
+    def update(self, keys):
+        if keys[pygame.K_w]: self.rect.y -= self.speed
+        if keys[pygame.K_s]: self.rect.y += self.speed
+        if keys[pygame.K_a]: self.rect.x -= self.speed
+        if keys[pygame.K_d]: self.rect.x += self.speed
+
+    def draw(self):
+        pygame.draw.rect(screen, BLUE, self.rect)
+
+
+class NPC:
+    def __init__(self, x, y, dialogue_key):
+        self.rect = pygame.Rect(x, y, 40, 40)
+        self.key = dialogue_key
+
+    def draw(self):
+        pygame.draw.rect(screen, RED, self.rect)
+
+
+player = Player()
+
+npcs = [
+    NPC(600, 300, "old_man"),
+    NPC(350, 500, "kid")
+]
+
+
+# ======================================================
+# MAIN LOOP
+# ======================================================
+
+while True:
+
+    dt = clock.tick(60) / 1000
+
+    for event in pygame.event.get():
+
+        if event.type == pygame.QUIT:
+            pygame.quit()
+            sys.exit()
+
+        dialogue.handle_event(event)
+
+        if event.type == pygame.KEYDOWN and not dialogue.active:
+            if event.key == pygame.K_e:
+                for npc in npcs:
+                    if player.rect.colliderect(npc.rect):
+                        dialogue.start(DIALOGUES[npc.key])
+
+    keys = pygame.key.get_pressed()
+
+    if not dialogue.active:
+        player.update(keys)
+
+    dialogue.update(dt)
+
+    # draw world
+    screen.fill(GREY)
+
+    player.draw()
+
+    for npc in npcs:
+        npc.draw()
+
+    dialogue.draw(screen)
+
+    pygame.display.flip()
