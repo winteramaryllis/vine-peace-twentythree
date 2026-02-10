@@ -1,0 +1,247 @@
+import pygame
+import sys
+
+# =====================================================
+# INIT
+# =====================================================
+
+pygame.init()
+
+WIDTH, HEIGHT = 900, 600
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("Dialogue RPG (monolithic edition)")
+
+clock = pygame.time.Clock()
+
+FONT = pygame.font.SysFont("consolas", 22)
+
+WHITE = (240, 240, 240)
+BLACK = (20, 20, 20)
+BLUE = (60, 120, 255)
+RED = (200, 80, 80)
+BOX = (25, 25, 25)
+TEXT = (240, 240, 240)
+CHOICE = (180, 220, 255)
+
+
+# =====================================================
+# DIALOGUE DATA
+# (edit this to write story stuff)
+# =====================================================
+
+DIALOGUES = {
+
+    "npc_intro": {
+
+        "start": {
+            "text": "Old Man: You look lost.",
+            "next": "choice1"
+        },
+
+        "choice1": {
+            "text": "What do you say?",
+            "choices": [
+                {"text": "Who are you?", "next": "who"},
+                {"text": "I'm fine.", "next": "fine"},
+                {"text": "Leave me alone.", "next": "rude"},
+            ]
+        },
+
+        "who": {
+            "text": "Old Man: Just someone who has seen too many save files.",
+            "next": None
+        },
+
+        "fine": {
+            "text": "Old Man: No one says that and means it.",
+            "next": None
+        },
+
+        "rude": {
+            "text": "Old Man: Charming. You'll fit right in.",
+            "next": None
+        }
+    }
+}
+
+
+# =====================================================
+# DIALOGUE SYSTEM
+# =====================================================
+
+class DialogueBox:
+    def __init__(self, font):
+        self.font = font
+        self.data = None
+        self.node = None
+        self.choice_index = 0
+        self.active = False
+
+    def start(self, data):
+        self.data = data
+        self.node = "start"
+        self.choice_index = 0
+        self.active = True
+
+    def update(self):
+        if self.node is None:
+            self.active = False
+
+    def handle_event(self, event):
+        if not self.active:
+            return
+
+        if event.type != pygame.KEYDOWN:
+            return
+
+        node_data = self.data[self.node]
+
+        # Choice nodes
+        if "choices" in node_data:
+
+            if event.key == pygame.K_UP:
+                self.choice_index = max(0, self.choice_index - 1)
+
+            if event.key == pygame.K_DOWN:
+                self.choice_index = min(
+                    len(node_data["choices"]) - 1,
+                    self.choice_index + 1
+                )
+
+            if event.key == pygame.K_RETURN:
+                self.node = node_data["choices"][self.choice_index]["next"]
+                self.choice_index = 0
+
+        # Normal nodes
+        else:
+            if event.key == pygame.K_RETURN:
+                self.node = node_data.get("next")
+
+    def draw(self, surface):
+        if not self.active:
+            return
+
+        rect = pygame.Rect(40, 380, 820, 190)
+        pygame.draw.rect(surface, BOX, rect)
+
+        node_data = self.data[self.node]
+
+        self.draw_text(surface, node_data["text"], 60, 400)
+
+        if "choices" in node_data:
+            for i, choice in enumerate(node_data["choices"]):
+                color = CHOICE if i == self.choice_index else TEXT
+                txt = self.font.render(choice["text"], True, color)
+                surface.blit(txt, (80, 440 + i * 30))
+
+    def draw_text(self, surface, text, x, y):
+        wrapped = wrap_text(text, self.font, 760)
+
+        for i, line in enumerate(wrapped):
+            txt = self.font.render(line, True, TEXT)
+            surface.blit(txt, (x, y + i * 28))
+
+
+# =====================================================
+# TEXT WRAP HELPER
+# =====================================================
+
+def wrap_text(text, font, max_width):
+    words = text.split()
+    lines = []
+    current = ""
+
+    for word in words:
+        test = current + word + " "
+        if font.size(test)[0] <= max_width:
+            current = test
+        else:
+            lines.append(current)
+            current = word + " "
+
+    lines.append(current)
+    return lines
+
+
+# =====================================================
+# PLAYER
+# =====================================================
+
+class Player:
+    def __init__(self):
+        self.rect = pygame.Rect(100, 100, 40, 40)
+        self.speed = 4
+
+    def update(self, keys):
+        if keys[pygame.K_w]:
+            self.rect.y -= self.speed
+        if keys[pygame.K_s]:
+            self.rect.y += self.speed
+        if keys[pygame.K_a]:
+            self.rect.x -= self.speed
+        if keys[pygame.K_d]:
+            self.rect.x += self.speed
+
+    def draw(self, surface):
+        pygame.draw.rect(surface, BLUE, self.rect)
+
+
+# =====================================================
+# NPC
+# =====================================================
+
+class NPC:
+    def __init__(self, x, y, dialogue_key):
+        self.rect = pygame.Rect(x, y, 40, 40)
+        self.dialogue_key = dialogue_key
+
+    def draw(self, surface):
+        pygame.draw.rect(surface, RED, self.rect)
+
+
+# =====================================================
+# GAME SETUP
+# =====================================================
+
+player = Player()
+npc = NPC(500, 300, "npc_intro")
+dialogue = DialogueBox(FONT)
+
+
+# =====================================================
+# MAIN LOOP
+# =====================================================
+
+while True:
+
+    dt = clock.tick(60)
+
+    for event in pygame.event.get():
+
+        if event.type == pygame.QUIT:
+            pygame.quit()
+            sys.exit()
+
+        dialogue.handle_event(event)
+
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_e and not dialogue.active:
+                if player.rect.colliderect(npc.rect):
+                    dialogue.start(DIALOGUES[npc.dialogue_key])
+
+    keys = pygame.key.get_pressed()
+
+    if not dialogue.active:
+        player.update(keys)
+
+    dialogue.update()
+
+    # DRAW
+    screen.fill(WHITE)
+
+    player.draw(screen)
+    npc.draw(screen)
+
+    dialogue.draw(screen)
+
+    pygame.display.flip()
