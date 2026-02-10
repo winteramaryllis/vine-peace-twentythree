@@ -15,10 +15,10 @@ clock = pygame.time.Clock()
 
 FONT = pygame.font.SysFont("consolas", 22)
 
-WHITE = (240, 240, 240)
+WHITE = (223, 244, 247)
 BLACK = (20, 20, 20)
-BLUE = (60, 120, 255)
-RED = (200, 80, 80)
+BLUE = (187, 208, 242)
+RED = (97, 7, 7)
 BOX = (25, 25, 25)
 TEXT = (240, 240, 240)
 CHOICE = (180, 220, 255)
